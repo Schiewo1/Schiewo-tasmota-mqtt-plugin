@@ -27,32 +27,33 @@ No extra setup, no JSON parsing, no MQTT coding needed.
 
 ---
 
-
-
 ## 🧠 Mosquitto Setup
 
 Before installing the plugin, make sure your MQTT broker is configured correctly.
 
-Add the following lines to your Mosquitto configuration (for example in `/etc/mosquitto/conf.d/01-listeners.conf`):
+Add the following lines to your Mosquitto configuration  
+(for example in `/etc/mosquitto/conf.d/01-listeners.conf`):
 
-listener 1883
-protocol mqtt
-allow_anonymous true
+`listener 1883`
+`protocol mqtt`
+`allow_anonymous true`
 
-listener 9001
-protocol websockets
-allow_anonymous true
+`listener 9001`
+`protocol websockets`
+`allow_anonymous true`
+
 
 Then restart Mosquitto:
-sudo systemctl restart mosquitto
 
+`sudo systemctl restart mosquitto`
 
 
 Your broker is now ready, and you can connect using:
-ws://<broker-ip>:9001
 
-No `/mqtt` path is needed with this configuration.
+`ws://<broker-ip>:9001`
 
+
+ No `/mqtt` path is needed with this configuration.
 
 ## 🪄 Quick Setup
 
