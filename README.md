@@ -1,3 +1,13 @@
+<p align="center">
+  <img src="https://raw.githubusercontent.com/Schiewo1/Schiewo-tasmota-mqtt-plugin/main/Produkt_avatar.png" width="250" alt="MQTT Tasmota Plugin Logo">
+</p>
+
+<h1 align="center">Schiewo Tasmota MQTT Plugin</h1>
+
+<p align="center">
+  <img src="https://raw.githubusercontent.com/Schiewo1/Schiewo-tasmota-mqtt-plugin/main/brand.png" width="400" alt="Schiewo Brand Logo">
+</p>
+
 
 # Tasmota MQTT Plugin for Soomfon 
 
