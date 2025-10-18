@@ -35,11 +35,15 @@ Add the following lines to your Mosquitto configuration
 (for example in `/etc/mosquitto/conf.d/01-listeners.conf`):
 
 `listener 1883`
+
 `protocol mqtt`
+ 
 `allow_anonymous true`
 
 `listener 9001`
+
 `protocol websockets`
+ 
 `allow_anonymous true`
 
 
