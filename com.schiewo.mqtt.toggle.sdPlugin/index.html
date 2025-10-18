@@ -1,0 +1,455 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>MQTT Toggle (universal info mode)</title>
+</head>
+<script src="lib/mqtt.min.js"></script>
+<body>
+<script>
+/* ===== Minimal MQTT 3.1.1 over WebSocket (QoS0) ===== */
+const MiniMQTT=(()=>{function e(e){const t=[];do{let n=e%128;e=Math.floor(e/128),e>0&&(n|=128),t.push(n)}while(e>0);return Uint8Array.from(t)}function t(e){const t=new TextEncoder().encode(e),n=new Uint8Array(2+t.length);return n[0]=t.length>>8&255,n[1]=255&t.length,n.set(t,2),n}function n(e){let t=0;return e.forEach((e=>t+=e.length)),(()=>{const n=new Uint8Array(t);let o=0;return e.forEach((e=>{n.set(e,o),o+=e.length})),n})()}class o{constructor(e,{clientId:n,username:o,password:s,keepalive:a=30,onMessage:i,onPhase:r,onError:l}={}){this.url=e,this.clientId=n||"sc-"+Math.random().toString(16).slice(2),this.username=o,this.password=s,this.keepalive=a,this.onMessage=i||(()=>{}),this.onPhase=r||(()=>{}),this.onError=l||(()=>{}),this.ws=null,this.pinger=null,this.ready=!1,this.queue=[]}connect(){try{this.ws=new WebSocket(this.url,["mqtt","mqttv3.1.1"])}catch(e){return void this.onError("WS_OPEN_FAIL")}this.ws.binaryType="arraybuffer",this.ws.onopen=()=>{this.onPhase("WS");const o=t("MQTT"),s=Uint8Array.from([4]);let a=2;this.username&&(a|=128),this.password&&(a|=64);const i=new Uint8Array([this.keepalive>>8&255,255&this.keepalive]),r=n([o,s,Uint8Array.from([a]),i]),l=n([t(this.clientId)].concat(this.username?[t(this.username)]:[]).concat(this.password?[t(this.password)]:[])),c=n([r,l]),u=Uint8Array.from([16,...e(c.length)]);try{this.ws.send(n([u,c])),this.onPhase("MQTT")}catch(e){this.onError("MQTT_CONNECT_FAIL")}setTimeout(()=>{this.ready=!0,this.queue.splice(0).forEach(e=>e())},150),this.pinger=setInterval(()=>{try{this.ws&&1===this.ws.readyState&&this.ws.send(Uint8Array.from([192,0]))}catch(e){}},Math.max(1e4,500*this.keepalive))},this.ws.onmessage=e=>{const t=new Uint8Array(e.data),n=t[0]>>4;if(3===n){let e=1,o=1,s=0;do s+=(127&t[e])*o,o*=128;while(128&t[e++]);const a=(t[e]<<8)+t[e+1];e+=2;const i=new TextDecoder().decode(t.slice(e,e+a));e+=a;const r=new TextDecoder().decode(t.slice(e));this.onMessage(i,r)}},this.ws.onerror=()=>this.onError("WS_ERR"),this.ws.onclose=()=>{this.pinger&&clearInterval(this.pinger),this.ready=!1}}afterReady(e){this.ready?e():this.queue.push(e)}subscribe(o){const s=()=>{const s=Uint8Array.from([130]),a=Uint8Array.from([0,1]),i=t(o),r=Uint8Array.from([0]);this.ws.send(n([s,e(n([a,i,r]).length),n([a,i,r])]))};this.afterReady(s)}publish(o,s){const a=()=>{const a=t(o),i=new TextEncoder().encode("string"==typeof s?s:JSON.stringify(s)),r=n([a,i]),l=Uint8Array.from([48,...e(r.length)]);this.ws.send(n([l,r]))};this.afterReady(a)}}return{Client:o}})();
+
+/* ===== Host bridge / State ===== */
+let websocket=null, pluginUUID=null;
+const contexts={};        // per-key settings (laufend)
+const clients={};         // MQTT client cache per wsUrl|user|pass
+let globalStore = {};     // Kopie aller Settings per context (aus Global Settings)
+window.contexts = contexts;
+
+/* === Persist-Helper (Change-Check + Debounce) === */
+function shallowEqual(a,b){
+  if (a === b) return true;
+  if (!a || !b) return false;
+  const ka = Object.keys(a), kb = Object.keys(b);
+  if (ka.length !== kb.length) return false;
+  for (const k of ka) if (a[k] !== b[k]) return false;
+  return true;
+}
+const persistTimers = {}; // pro ctx
+
+/* ---- WS helpers ---- */
+function send(evt){ try{ websocket&&websocket.readyState===1&&websocket.send(JSON.stringify(evt)); }catch(e){} }
+function setTitle(ctx,t){ send({event:"setTitle",context:ctx,payload:{title:t}}); }
+
+// Infozeile (target:1)
+function setSoftTitle(ctx, t){
+  send({ event:"setTitle", context:ctx, payload:{ title:t, target:1 } });
+}
+
+// Nur Hardware (Button) Titel
+function setHardTitle(ctx,t){ send({event:"setTitle",context:ctx,payload:{title:t, target:0}}); }
+
+/* ===== Parser: State (ON/OFF) ===== */
+function parseState(topic, payload){
+  const up = (payload || "").trim().toUpperCase();
+  if (topic.endsWith("/POWER")) {
+    if (up === "ON" || up === "OFF" || up === "1" || up === "0") {
+      return (up === "1") ? "ON" : (up === "0") ? "OFF" : up;
+    }
+  }
+  try {
+    const o = JSON.parse(payload);
+    if (o && typeof o === "object") {
+      if (typeof o.POWER === "string")  return o.POWER.toUpperCase();
+      if (typeof o.POWER1 === "string") return o.POWER1.toUpperCase();
+      if (o.STATE && typeof o.STATE.POWER === "string") return o.STATE.POWER.toUpperCase();
+      if (o.State && typeof o.State.Power === "string")  return o.State.Power.toUpperCase();
+      if (o.POWER === 1) return "ON";
+      if (o.POWER === 0) return "OFF";
+      if (typeof o.state === "string") {
+        const s = o.state.toUpperCase();
+        if (s === "ON" || s === "OFF") return s;
+      }
+    }
+  } catch (_) {}
+  return null;
+}
+
+/* ===== Parser: Mehrere Info-Werte (W, V, A, °C, % …) ===== */
+function extractInfoValues(topic, payload){
+  // Liefert ein Objekt mit ggf. vorhandenen Werten (Zahlen) in standardisierten Keys
+  // { watt, volt, amp, pf, temp, hum, freq, voltageDC, currentDC, co2, voc, ... }
+  const vals = {};
+  // Plain? Dann nichts
+  try{
+    const o = JSON.parse(payload);
+    if (!o || typeof o!=="object") return vals;
+
+    // ENERGY-Blöcke (Tasmota)
+    const energy = o.ENERGY || o.Energy || (o.StatusSNS && (o.StatusSNS.ENERGY||o.StatusSNS.Energy)) || (o.SENSOR && (o.SENSOR.ENERGY||o.SENSOR.Energy));
+    if (energy){
+      if (energy.Power   != null) vals.watt = Number(energy.Power);
+      if (energy.Voltage != null) vals.volt = Number(energy.Voltage);
+      if (energy.Current != null) vals.amp  = Number(energy.Current);
+      if (energy.Factor  != null) vals.pf   = Number(energy.Factor);
+      if (energy.Frequency != null) vals.freq = Number(energy.Frequency);
+      if (energy.Today   != null) vals.energyToday = Number(energy.Today);
+      if (energy.Yesterday!=null) vals.energyYday  = Number(energy.Yesterday);
+      if (energy.Total   != null) vals.energyTotal = Number(energy.Total);
+    }
+
+    // Häufige Sensoren (Temperatur/Luftfeuchte)
+    // DS18B20
+    if (o.DS18B20 && o.DS18B20.Temperature != null) vals.temp = Number(o.DS18B20.Temperature);
+    // AM2301 / DHTxx
+    if (o.AM2301){
+      if (o.AM2301.Temperature != null) vals.temp = Number(o.AM2301.Temperature);
+      if (o.AM2301.Humidity    != null) vals.hum  = Number(o.AM2301.Humidity);
+    }
+    if (o.SI7021){
+      if (o.SI7021.Temperature != null) vals.temp = Number(o.SI7021.Temperature);
+      if (o.SI7021.Humidity    != null) vals.hum  = Number(o.SI7021.Humidity);
+    }
+    // Flache Keys
+    if (o.Temperature != null) vals.temp = Number(o.Temperature);
+    if (o.Humidity    != null) vals.hum  = Number(o.Humidity);
+    if (o.Voltage     != null) vals.volt = Number(o.Voltage);
+    if (o.Current     != null) vals.amp  = Number(o.Current);
+
+    // Weitere übliche Felder (Best effort)
+    if (o.CO2      != null) vals.co2 = Number(o.CO2);
+    if (o.VOC      != null) vals.voc = Number(o.VOC);
+  }catch(_){}
+  return vals;
+}
+
+/* ===== Statusanzeige: Button ON/OFF + universale Info ===== */
+function formatInfo(mode, vals){
+  // gibt Text für Infozeile zurück ("" wenn nichts)
+  // mode: "off"|"auto"|"watt"|"temp"|"volt"|"amp"|"hum"|"pf"|"freq"|...
+  if (!vals || typeof vals!=="object") return "";
+
+  const pick = (key, unit, digits=0)=>{
+    const v = vals[key];
+    if (v == null || !Number.isFinite(Number(v))) return "";
+    const n = Number(v);
+    return n.toFixed(digits) + " " + unit;
+  };
+
+  const priority = ["watt","temp","volt","amp","hum","pf","freq","co2","voc"]; // für auto
+  const unitMap  = {
+    watt:["watt","W",0],
+    temp:["temp","°C",1],
+    volt:["volt","V",1],
+    amp :["amp","A",2],
+    hum :["hum","%",0],
+    pf  :["pf","PF",2],
+    freq:["freq","Hz",1],
+    co2 :["co2","ppm",0],
+    voc :["voc","ppb",0],
+  };
+
+  if (mode==="off") return "";
+  if (mode==="auto"){
+    for (const k of priority){
+      const desc = unitMap[k];
+      if (!desc) continue;
+      const [key, unit, d] = desc;
+      const txt = pick(key, unit, d);
+      if (txt) return txt;
+    }
+    return "";
+  }
+
+  // explizit
+  const desc = unitMap[mode];
+  if (!desc) return "";
+  const [key, unit, d] = desc;
+  return pick(key, unit, d);
+}
+
+function setStatusTitle(ctx, s){
+  // --- Button: ON/OFF stabil, nie leeren ---
+  const st = (s && typeof s._state === "string") ? s._state.toUpperCase() : "";
+  let baseStatus = (st === "ON" || st === "OFF")
+    ? st
+    : (s && s._lastBtnTitle) ? s._lastBtnTitle : "OFF";
+
+  send({ event:"setTitle", context:ctx, payload:{ title:baseStatus, target:0 } });
+  if (s) s._lastBtnTitle = baseStatus;
+
+  // --- Infozeile: abhängig vom infoMode ---
+  const mode = (s && s.infoMode) ? String(s.infoMode).trim().toLowerCase() : "watt";
+  const line = formatInfo(mode, s && s._vals ? s._vals : {});
+  if (line !== ""){
+    send({ event:"setTitle", context:ctx, payload:{ title:line, target:1 } });
+  }
+  // wenn leer, nichts senden (nicht leeren)
+}
+
+/* ===== Settings helpers ===== */
+function wildFromState(stateTopic){ return stateTopic ? stateTopic.replace(/\/POWER$/i,"/#") : ""; }
+function deriveTeleWild(stateTopic){
+  if (!stateTopic) return "";
+  const tele = stateTopic.replace(/^stat\//i, "tele/");
+  return tele.replace(/\/POWER$/i, "/#");
+}
+function wantSettings(user){
+  // Rückwärtskompatibel: softInfoWatt -> infoMode
+  let infoMode = user.infoMode;
+  if (!infoMode && user.softInfoWatt != null){
+    const v = String(user.softInfoWatt).trim().toLowerCase();
+    infoMode = (["off","hide","ausblenden","0","false","nein","no"].includes(v)) ? "off" : "watt";
+  }
+  if (!infoMode) infoMode = "watt"; // Standard wie vorher: Watt im Info-Bereich
+
+  const s={
+    wsUrl:        user.wsUrl      || "",
+    username:     (user.username ?? ""),
+    password:     (user.password ?? ""),
+    cmdTopic:     user.cmdTopic   || "",
+    stateTopic:   user.stateTopic || "",
+    togglePayload:(user.togglePayload || "TOGGLE"),
+    on:           (user.on || "ON"),
+    off:          (user.off|| "OFF"),
+    infoMode      // neu
+  };
+  s.stateWild = wildFromState(s.stateTopic);
+  s.teleWild  = deriveTeleWild(s.stateTopic);
+  return s;
+}
+
+/* ===== Persist Settings (nested + flat, entprellt) ===== */
+function persistSettings(ctx, s){
+  const toStore = {
+    wsUrl: s.wsUrl,
+    username: s.username,
+    password: s.password,
+    cmdTopic: s.cmdTopic,
+    stateTopic: s.stateTopic,
+    on: s.on,
+    off: s.off,
+    togglePayload: s.togglePayload,
+    infoMode: s.infoMode
+  };
+
+  const prev = (contexts[ctx] && contexts[ctx]._persisted) ? contexts[ctx]._persisted : null;
+  if (prev && shallowEqual(prev, toStore)) return;
+
+  clearTimeout(persistTimers[ctx]);
+  persistTimers[ctx] = setTimeout(()=>{
+    // 1) Verschachtelt
+    send({ event:"setSettings", context:ctx, payload:{ settings: toStore } });
+    // 2) Flat (Kompatibilität)
+    send({ event:"setSettings", context:ctx, payload: toStore });
+
+    // 3) Global Settings (Recovery)
+    globalStore[ctx] = toStore;
+    send({ event:"setGlobalSettings", context:pluginUUID, payload:{ mqttSettingsByContext: globalStore } });
+
+    // 4) Lokal merken
+    if (!contexts[ctx]) contexts[ctx] = {};
+    contexts[ctx]._persisted = toStore;
+  }, 60);
+}
+
+function tryLoadFromGlobal(ctx){ const g = globalStore[ctx]; return g ? wantSettings(g) : null; }
+
+/* ===== MQTT helpers ===== */
+function notifyPI(ctx, payload){ try{ send({event:"sendToPropertyInspector", context:ctx, payload}); }catch(_){ } }
+function keyForClient(s){ return [s.wsUrl||"",s.username||"",s.password||""].join("|"); }
+function getClient(s,ctx){
+  const k=keyForClient(s);
+  if (clients[k]) return clients[k];
+  const c=new MiniMQTT.Client(s.wsUrl,{
+    username:s.username, password:s.password, keepalive:30,
+    onPhase:(ph)=>{ if(ctx) setTitle(ctx, ph); },
+    onError:(_)=>{ if(ctx) setTitle(ctx, "ERR"); },
+    onMessage:onMqtt
+  });
+  c.connect(); clients[k]=c; return c;
+}
+
+/* ===== Haupt-MQTT-Handler ===== */
+function onMqtt(topic, payload){
+  Object.entries(contexts).forEach(([ctx, s])=>{
+    if (!s) return;
+
+    const statePrefix = s.stateWild ? s.stateWild.replace(/\/#$/,"/") : null;
+    const telePrefix  = s.teleWild  ? s.teleWild.replace(/\/#$/,"/")   : null;
+    const matches =
+      (statePrefix && topic.startsWith(statePrefix)) ||
+      (telePrefix  && topic.startsWith(telePrefix));
+    if (!matches) return;
+
+    // State übernehmen
+    const st = parseState(topic, payload);
+    if (st){ s._state = st; notifyPI(ctx, {type:"liveState", state:s._state}); }
+
+    // Universale Info-Werte extrahieren (inkl. Watt)
+    const vals = extractInfoValues(topic, payload);
+    if (Object.keys(vals).length){
+      s._vals = Object.assign(s._vals||{}, vals);
+      // Für Kompatibilität: _powerW weiterhin pflegen, falls vorhanden
+      if (vals.watt != null) s._powerW = Number(vals.watt);
+      notifyPI(ctx, {type:"liveInfo", vals:s._vals});
+    }
+
+    // Reihenfolge: erst Icon, dann Text
+    applyVisual(ctx);
+    setStatusTitle(ctx, s);
+  });
+}
+
+/* === Langsame Status-Abfrage (STATUS 0) === */
+function requestStatusIfPossible(s, client){
+  if (!s || !client || !s.cmdTopic) return;
+  const statusCmd = s.cmdTopic.replace(/\/POWER$/i, "/STATUS");
+  try { client.publish(statusCmd, "0"); } catch(_) {}
+}
+
+/* === Schnelle Status-Abfrage (STATE) – ideal nach keyUp === */
+function requestFastState(s, client){
+  if (!s || !client || !s.cmdTopic) return;
+  const stateCmd = s.cmdTopic.replace(/\/POWER$/i, "/STATE");
+  try { client.publish(stateCmd, ""); } catch(_) {}
+}
+
+/* ===== Main entry ===== */
+function connectElgatoStreamDeckSocket(port, uuid, registerEvent, info){
+  pluginUUID=uuid;
+  websocket=new WebSocket("ws://127.0.0.1:"+port);
+  websocket.onopen=()=>{
+    send({event:registerEvent,uuid:pluginUUID});
+    send({event:"getGlobalSettings", context: pluginUUID});
+  };
+
+  websocket.onmessage=(evt)=>{
+    const msg=JSON.parse(evt.data||"{}");
+    const ev = msg.event;
+    const ctx = msg.context;
+    const pl = msg.payload || {};
+
+    if (ev==="didReceiveGlobalSettings"){
+      const gs = (pl && (pl.settings || pl)) || {};
+      globalStore = gs.mqttSettingsByContext || {};
+      return;
+    }
+
+    if (ev==="willAppear"){
+      const user=(pl.settings)||{};
+      let s=wantSettings(user);
+      if ((!s.wsUrl||!s.cmdTopic||!s.stateTopic) && ctx){
+        const g = tryLoadFromGlobal(ctx);
+        if (g){ s = contexts[ctx] = wantSettings(g); }
+      }
+      contexts[ctx]=s;
+
+      // Initialer Button-Text, bis der erste State kommt
+      if (!s._lastBtnTitle){
+        send({ event:"setTitle", context:ctx, payload:{ title:"OFF", target:0 } });
+        s._lastBtnTitle = "OFF";
+      }
+
+      send({ event:"getSettings", context: ctx });
+      if (s.wsUrl && s.cmdTopic && s.stateTopic) persistSettings(ctx, s);
+
+      if (!s.wsUrl){ setTitle(ctx,"wsUrl?"); return; }
+      if (!s.cmdTopic){ setTitle(ctx,"cmdTopic?"); return; }
+      if (!s.stateTopic){ setTitle(ctx,"stateTopic?"); return; }
+
+      setTitle(ctx,"INIT");
+      const c=getClient(s,ctx);
+      s.stateWild = wildFromState(s.stateTopic);
+      if (s.stateWild) c.subscribe(s.stateWild);
+      s.teleWild = deriveTeleWild(s.stateTopic);
+      if (s.teleWild && s.teleWild !== s.stateWild) c.subscribe(s.teleWild);
+      requestStatusIfPossible(s,c);
+
+      // Einmal direkt rendern
+      applyVisual(ctx);
+      setStatusTitle(ctx, s);
+    }
+
+    if (ev==="didReceiveSettings" || (ev==="sendToPlugin" && pl && pl.type==="piSettingsUpdated" && pl.settings)){
+      const user=(pl.settings||pl||{});
+      const s=contexts[ctx]=wantSettings(user);
+      persistSettings(ctx, s);
+
+      if (!s.wsUrl || !s.cmdTopic || !s.stateTopic){
+        setTitle(ctx, !s.wsUrl ? "wsUrl?" : (!s.cmdTopic ? "cmdTopic?" : "stateTopic?"));
+        return;
+      }
+      const c=getClient(s,ctx);
+      s.stateWild = wildFromState(s.stateTopic);
+      if (s.stateWild) c.subscribe(s.stateWild);
+      s.teleWild = deriveTeleWild(s.stateTopic);
+      if (s.teleWild && s.teleWild !== s.stateWild) c.subscribe(s.teleWild);
+      requestStatusIfPossible(s,c);
+      setTitle(ctx,"INIT");
+
+      // Einmal direkt rendern
+      applyVisual(ctx);
+      setStatusTitle(ctx, s);
+    }
+
+    if (ev==="keyUp"){
+      const s=contexts[ctx]||{};
+      if (!s.wsUrl || !s.cmdTopic){ setTitle(ctx,"ERR"); return; }
+      const c=getClient(s,ctx);
+
+      // Toggle senden
+      c.publish(s.cmdTopic, s.togglePayload || "TOGGLE");
+
+      // Sofort echten Status anfordern:
+      requestFastState(s, c);
+    }
+
+    if (ev==="willDisappear"){ delete contexts[ctx]; }
+  };
+}
+</script>
+
+<!-- === UI-Layer: Bilder === -->
+<script>
+const ICON_FILES = {
+  fan_on:  "images/fan_on.png",
+  fan_off: "images/fan_off.png",
+  prn_on:  "images/prn_on.png",
+  prn_off: "images/prn_off.png",
+  init:    "images/init.png"
+};
+const ICONS = {fan_on:null, fan_off:null, prn_on:null, prn_off:null, init:null};
+let ICONS_READY = false;
+
+function setImage(ctx, dataUrl){
+  if (!dataUrl) return;
+  try { send({event:"setImage", context:ctx, payload:{ image:dataUrl, target:0 }}); } catch(_){}
+}
+function toDataURL(path){
+  return fetch(path).then(r=>{ if(!r.ok) throw new Error("not found"); return r.blob(); })
+    .then(b=>new Promise(res=>{ const fr=new FileReader(); fr.onload=()=>res(fr.result); fr.readAsDataURL(b); }));
+}
+function loadAllIcons(){
+  const entries = Object.entries(ICON_FILES);
+  return Promise.all(entries.map(([k,p])=>toDataURL(p).then(u=>ICONS[k]=u).catch(()=>ICONS[k]=null)))
+    .finally(()=>{
+      ICONS_READY = true;
+      if (window.contexts){
+        Object.keys(window.contexts).forEach(ctx=>{
+          if (ICONS.init) setImage(ctx, ICONS.init);
+          applyVisual(ctx, true);
+        });
+      }
+    });
+}
+function visualOf(s){ const t=(s&&s.cmdTopic||"").toLowerCase(); return t.includes("ventilator")?"fan":"printer"; }
+function pickImage(s){
+  const st=(s._state||"").toUpperCase();
+  const vis=visualOf(s);
+  if (vis==="fan") return st==="ON"?ICONS.fan_on:ICONS.fan_off;
+  return st==="ON"?ICONS.prn_on:ICONS.prn_off;
+}
+function applyVisual(ctx, force=false){
+  const s=(window.contexts||{})[ctx];
+  if (!s) return;
+  if (!ICONS_READY && !force) return;
+  const img=pickImage(s)||ICONS.init;
+  if (img){ setImage(ctx,img); }
+  // KEIN setHardTitle(...) hier – nie den Button-Titel überschreiben
+}
+loadAllIcons();
+</script>
+</body>
+</html>

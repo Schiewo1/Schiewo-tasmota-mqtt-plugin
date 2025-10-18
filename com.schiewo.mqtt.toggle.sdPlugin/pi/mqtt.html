@@ -1,0 +1,278 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Tasmota MQTT – Property Inspector</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+
+  <style>
+    :root {
+      --pad: 12px; --gap: 10px; --radius: 10px;
+      --accent: #00c896;
+      --glow: #35b6ff;
+    }
+    body {
+      font:12px system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;
+      margin:0; padding: var(--pad);
+      color:#ddd; background:#1e1e1e;
+    }
+
+    header.brandbar {
+      position: sticky; top: 0; z-index: 5;
+      display:flex; align-items:center; justify-content:space-between;
+      margin: -12px -12px var(--pad);
+      padding: 10px 14px;
+      background: linear-gradient(90deg,#202020,#181818);
+      border-bottom:1px solid #2a2a2a;
+    }
+    .brand-left{ display:flex; align-items:center; gap:10px; min-height:24px; }
+    .brand-logo{
+      height:22px; width:auto; display:block; object-fit:contain;
+      filter:
+        drop-shadow(0 2px 2px rgba(0,0,0,.55))
+        drop-shadow(0 0 6px rgba(53,182,255,.35))
+        drop-shadow(0 0 14px rgba(53,182,255,.25));
+    }
+    .brand-title{
+      font-weight:700; letter-spacing:.3px;
+      color:var(--accent);
+      text-shadow:
+        0 0 3px rgba(0,200,150,.25),
+        0 0 10px rgba(0,200,150,.15);
+    }
+    .brand-right{ font-size:11px; color:#9aa; }
+
+    .group { background:#2b2b2b; border-radius: var(--radius); padding: var(--pad); margin-bottom: var(--gap); }
+    .row { display:flex; gap: var(--gap); margin-top: var(--gap); }
+    label { display:block; font-weight:600; margin-bottom:6px; }
+    input[type="text"], select {
+      width:100%; padding:8px; border-radius:8px;
+      border:1px solid #3a3a3a; background:#1c1c1c; color:#eee;
+    }
+    button {
+      padding:8px 10px; border-radius:8px;
+      border:1px solid #3a3a3a; background:#1c1c1c; color:#eee; cursor:pointer;
+    }
+    button:hover { background:#232323; }
+    .hint { color:#9aa; font-size:11px; margin-top:6px; }
+    .pill { display:inline-block; padding:2px 8px; border-radius:999px; background:#333; border:1px solid #444; font-size:11px; color:#bbb; }
+    .status { font-size:11px; color:#9aa; margin-top:6px; }
+    .tag { display:inline-block; margin:2px 6px 0 0; padding:2px 8px; border-radius:999px; border:1px solid #3a3a3a; background:#1c1c1c; font-size:11px; color:#bcd; }
+    .tag.dim { opacity:.45; color:#9aa; }
+    .rowtight { display:flex; gap:8px; align-items:center; margin-top:6px; }
+  </style>
+</head>
+<body>
+
+  <header class="brandbar">
+    <div class="brand-left">
+      <img src="./images/brand.png" alt="SEIEWO" class="brand-logo" onerror="this.style.display='none'">
+      <div class="brand-title" id="t_title">Tasmota MQTT</div>
+    </div>
+    <div class="brand-right" id="t_by">by Schiewo</div>
+  </header>
+
+  <div class="group">
+    <label id="t_wsLabel">MQTT-WebSocket URL <span class="hint" id="t_wsHint">(z. B. <span class="pill">ws://127.0.0.1:9001</span>)</span></label>
+    <input id="wsUrl" type="text" placeholder="ws://127.0.0.1:9001">
+    <div id="statusUrl" class="status"></div>
+  </div>
+
+  <div class="group">
+    <label id="t_topics">Topics</label>
+    <div class="row">
+      <input id="stateTopic" type="text" placeholder="stat/tasmota_D6763C/POWER">
+      <input id="cmdTopic"   type="text" placeholder="cmnd/tasmota_D6763C/POWER">
+    </div>
+    <div class="row">
+      <input id="deviceBase" type="text" placeholder="tasmota_D6763C">
+      <button id="btnFill">Aus Base füllen</button>
+    </div>
+    <div id="statusTopics" class="status"></div>
+  </div>
+
+  <div class="group">
+    <label id="t_display">Anzeigeart (zeigt nur, was dein Gerät wirklich liefert)</label>
+    <div class="rowtight">
+      <select id="infoMode">
+        <option value="auto" id="t_auto">Auto (empfohlen)</option>
+        <option value="watt" id="t_watt">Watt (W)</option>
+        <option value="temp" id="t_temp">Temperatur (°C)</option>
+        <option value="volt" id="t_volt">Spannung (V)</option>
+        <option value="amp"  id="t_amp">Strom (A)</option>
+        <option value="hum"  id="t_hum">Luftfeuchte (%)</option>
+        <option value="pf"   id="t_pf">Leistungsfaktor (PF)</option>
+        <option value="freq" id="t_freq">Frequenz (Hz)</option>
+        <option value="co2"  id="t_co2">CO₂ (ppm)</option>
+        <option value="voc"  id="t_voc">VOC (ppb)</option>
+        <option value="off"  id="t_off">Aus</option>
+      </select>
+      <label class="rowtight" style="gap:6px;">
+        <input id="onlyAvailable" type="checkbox" checked>
+        <span class="hint" id="t_onlyAvail">Nur verfügbare Optionen aktivieren</span>
+      </label>
+    </div>
+    <div id="statusMode" class="status"></div>
+    <div id="caps" class="hint" style="margin-top:8px;"></div>
+  </div>
+
+  <div class="group">
+    <label id="t_live">Live-Vorschau</label>
+    <div id="preview" class="status">(Warte auf Telemetrie …)</div>
+  </div>
+
+<script>
+// ============ Mehrsprachigkeit ============
+const I18N = {
+  en: {
+    title: "Tasmota MQTT",
+    by: "by Schiewo",
+    wsLabel: "MQTT WebSocket URL",
+    wsHint: "(e.g. ws://127.0.0.1:9001)",
+    topics: "Topics",
+    baseBtn: "Fill from base",
+    display: "Display mode (shows only what your device sends)",
+    auto: "Auto (recommended)",
+    watt: "Watt (W)", temp: "Temperature (°C)", volt: "Voltage (V)", amp: "Current (A)",
+    hum: "Humidity (%)", pf: "Power Factor (PF)", freq: "Frequency (Hz)", co2: "CO₂ (ppm)", voc: "VOC (ppb)", off: "Off",
+    onlyAvail: "Enable only available options",
+    live: "Live preview",
+    waiting: "(Waiting for telemetry …)",
+    saved: "Saved", filled: "Filled and saved"
+  },
+  de: {
+    title: "Tasmota MQTT",
+    by: "by Schiewo",
+    wsLabel: "MQTT-WebSocket URL",
+    wsHint: "(z. B. ws://127.0.0.1:9001)",
+    topics: "Topics",
+    baseBtn: "Aus Base füllen",
+    display: "Anzeigeart (zeigt nur, was dein Gerät wirklich liefert)",
+    auto: "Auto (empfohlen)",
+    watt: "Watt (W)", temp: "Temperatur (°C)", volt: "Spannung (V)", amp: "Strom (A)",
+    hum: "Luftfeuchte (%)", pf: "Leistungsfaktor (PF)", freq: "Frequenz (Hz)", co2: "CO₂ (ppm)", voc: "VOC (ppb)", off: "Aus",
+    onlyAvail: "Nur verfügbare Optionen aktivieren",
+    live: "Live-Vorschau",
+    waiting: "(Warte auf Telemetrie …)",
+    saved: "Gespeichert", filled: "Aus Base gefüllt und gespeichert"
+  }
+};
+let lang="en";
+function detectLanguage(info){
+  try{
+    const i=JSON.parse(info||"{}");
+    const l=i?.application?.language || navigator.language || "en";
+    lang=l.slice(0,2).toLowerCase();
+    if(!I18N[lang]) lang="en";
+  }catch{lang="en";}
+}
+function t(k){return (I18N[lang]&&I18N[lang][k])||I18N.en[k]||k;}
+function applyLanguage(){
+  const map={
+    "t_title":"title","t_by":"by","t_wsLabel":"wsLabel","t_wsHint":"wsHint","t_topics":"topics","btnFill":"baseBtn",
+    "t_display":"display","t_auto":"auto","t_watt":"watt","t_temp":"temp","t_volt":"volt","t_amp":"amp","t_hum":"hum",
+    "t_pf":"pf","t_freq":"freq","t_co2":"co2","t_voc":"voc","t_off":"off","t_onlyAvail":"onlyAvail","t_live":"live"
+  };
+  for(const [id,key] of Object.entries(map)){
+    const el=document.getElementById(id); if(el) el.textContent=t(key);
+  }
+  const prev=document.getElementById("preview");
+  if(prev) prev.textContent=t("waiting");
+}
+
+// ============ Bestehende Logik ============
+let websocket=null, ctx=null; let settings={};
+const $=s=>document.querySelector(s);
+const elWsUrl=$("#wsUrl"), elStateTopic=$("#stateTopic"), elCmdTopic=$("#cmdTopic"),
+      elInfoMode=$("#infoMode"), elDeviceBase=$("#deviceBase"), btnFill=$("#btnFill"), elOnlyAvail=$("#onlyAvailable");
+const stUrl=$("#statusUrl"), stTopics=$("#statusTopics"), stMode=$("#statusMode"),
+      elCaps=$("#caps"), elPreview=$("#preview");
+const now=()=>new Date().toLocaleTimeString();
+const setStatus=(el,msg)=> el.textContent=msg?`${msg} (${now()})`:"";
+const safeSet=(el,val)=>{const want=val??""; if(document.activeElement!==el&&(el.value??"")!==want) el.value=want;};
+let lastVals={};
+const LABELS={watt:"Watt",temp:"Temperatur",volt:"Spannung",amp:"Strom",hum:"Luftfeuchte",pf:"Leistungsfaktor",freq:"Frequenz",co2:"CO₂",voc:"VOC"};
+
+function renderCapabilities(vals){
+  const keys=Object.keys(LABELS);
+  const html=keys.map(k=>{
+    const present=vals&&vals[k]!=null&&Number.isFinite(Number(vals[k]));
+    return `<span class="tag ${present?"":"dim"}">${LABELS[k]||k}${present?"✓":"–"}</span>`;
+  }).join(" ");
+  elCaps.innerHTML=html||"Noch keine Daten empfangen.";
+  const onlyAvail=elOnlyAvail.checked;
+  [...elInfoMode.options].forEach(opt=>{
+    const k=opt.value;
+    if(["auto","off"].includes(k)){opt.disabled=false;return;}
+    const present=vals&&vals[k]!=null&&Number.isFinite(Number(vals[k]));
+    opt.disabled=onlyAvail?!present:false;
+  });
+}
+function fmt(num,unit,d=0){const n=Number(num);if(!Number.isFinite(n))return"";return n.toFixed(d)+(unit?" "+unit:"");}
+function formatLine(mode,vals){
+  if(!vals||typeof vals!=="object")return"";
+  const units={watt:["W",0],temp:["°C",1],volt:["V",1],amp:["A",2],hum:["%",0],pf:["PF",2],freq:["Hz",1],co2:["ppm",0],voc:["ppb",0]};
+  const pick=k=>vals[k]==null?"":fmt(vals[k],units[k]?.[0],units[k]?.[1]??0);
+  if(mode==="off")return"";
+  if(mode==="auto"){for(const k of Object.keys(units)){const t=pick(k);if(t)return t;}return"";}
+  return pick(mode);
+}
+function updatePreview(vals){
+  lastVals=vals||lastVals||{};
+  renderCapabilities(lastVals);
+  const txt=formatLine(elInfoMode.value||"auto",lastVals);
+  elPreview.textContent=txt||t("waiting");
+}
+let saveTimer=null;
+function pushSettings(newPartial){
+  settings={...settings,...newPartial};
+  if(!websocket||!ctx)return;
+  clearTimeout(saveTimer);
+  saveTimer=setTimeout(()=>{
+    const payload=settings;
+    websocket.send(JSON.stringify({event:"setSettings",context:ctx,payload}));
+    websocket.send(JSON.stringify({event:"sendToPlugin",context:ctx,payload:{type:"piSettingsUpdated",settings:payload}}));
+  },40);
+}
+const bindAutosave=(el,key,stEl)=>{const h=()=>{pushSettings({[key]:(el.value||"").trim()});if(stEl)setStatus(stEl,t("saved"));};
+  el.addEventListener("input",h);el.addEventListener("change",h);};
+bindAutosave(elWsUrl,"wsUrl",stUrl);
+bindAutosave(elStateTopic,"stateTopic",stTopics);
+bindAutosave(elCmdTopic,"cmdTopic",stTopics);
+bindAutosave(elInfoMode,"infoMode",stMode);
+elOnlyAvail.addEventListener("change",()=>renderCapabilities(lastVals));
+btnFill.addEventListener("click",()=>{
+  const base=(elDeviceBase.value||"").trim(); if(!base)return;
+  if(!elStateTopic.value)elStateTopic.value=`stat/${base}/POWER`;
+  if(!elCmdTopic.value)elCmdTopic.value=`cmnd/${base}/POWER`;
+  pushSettings({stateTopic:elStateTopic.value.trim(),cmdTopic:elCmdTopic.value.trim()});
+  setStatus(stTopics,t("filled"));
+});
+function applySettingsToUI(){
+  safeSet(elWsUrl,settings.wsUrl||"");
+  safeSet(elStateTopic,settings.stateTopic||"");
+  safeSet(elCmdTopic,settings.cmdTopic||"");
+  safeSet(elInfoMode,settings.infoMode||"auto");
+  updatePreview(null);
+}
+function connectElgatoStreamDeckSocket(inPort,inUUID,inRegisterEvent,inInfo){
+  detectLanguage(inInfo); applyLanguage();
+  ctx=inUUID; websocket=new WebSocket("ws://127.0.0.1:"+inPort);
+  websocket.onopen=function(){
+    websocket.send(JSON.stringify({event:inRegisterEvent,uuid:inUUID}));
+    websocket.send(JSON.stringify({event:"getSettings",context:ctx}));
+  };
+  websocket.onmessage=function(evt){
+    const msg=JSON.parse(evt.data||"{}");
+    if(msg.event==="didReceiveSettings"&&msg?.payload){
+      settings=msg.payload.settings||msg.payload||settings||{};
+      applySettingsToUI();
+    }
+    if(msg.event==="sendToPropertyInspector"&&msg?.payload){
+      const p=msg.payload; if(p.type==="liveInfo"&&p.vals) updatePreview(p.vals);
+    }
+  };
+}
+</script>
+</body>
+</html>
