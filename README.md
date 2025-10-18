@@ -1,5 +1,5 @@
 
-# Tasmota MQTT Plugin (for Soomfon & Elgato StreamDeck)
+# Tasmota MQTT Plugin for Soomfon 
 
 **by Schiewo**
 
@@ -7,7 +7,7 @@
 
 ## 🧩 What it does
 
-This plugin lets your StreamDeck (or Soomfon StreamDock) **display live data from any Tasmota device** using MQTT —
+This plugin lets your StreamDock **display live data from any Tasmota device** using MQTT —
 for example: power usage, voltage, temperature, humidity, CO₂, and more.
 
 It automatically detects what values your device sends and shows them directly on the key display.
@@ -23,7 +23,7 @@ No extra setup, no JSON parsing, no MQTT coding needed.
 ✅ **Auto language switch** (German 🇩🇪 / English 🇬🇧 — more coming soon)  
 ✅ Clean, modern **dark UI**  
 ✅ Easy setup – enter your device base once  
-✅ Works on **Soomfon** and **Elgato StreamDeck** hardware  
+✅ Works on **Soomfon** hardware  
 
 ---
 
@@ -59,7 +59,7 @@ No extra setup, no JSON parsing, no MQTT coding needed.
 | **Deutsch (German)** | ✅ Auto-selected |
 | Français, Español, Português, etc. | ➡️ Falls back to English automatically |
 
-Your StreamDeck/Soomfon language is detected automatically — no manual setting required.
+Your Soomfon language is detected automatically — no manual setting required.
 
 ---
 
@@ -102,7 +102,7 @@ Your StreamDeck/Soomfon language is detected automatically — no manual setting
          └─ lib/
              └─ mqtt.min.js
    ```
-3. Re-zip the whole `tasmota-mqtt-plugin/` folder and submit to the Soomfon Store or copy to your plugins directory.
+3. Re-zip the whole `tasmota-mqtt-plugin/` folder  to your plugins directory.
 
 ---
 
@@ -123,4 +123,4 @@ MIT License — see `LICENSE` for details.
 ## ❤️ Credits
 
 Created with ❤️ by **Schiewo**  
-For the Soomfon StreamDock / Elgato StreamDeck community.
+For the Soomfon StreamDock community.
