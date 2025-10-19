@@ -219,7 +219,7 @@ This update introduces **full automatic WebSocket path detection**, **optional u
 
 - Fully local JavaScript implementation (`mqtt.min.js` included)
 - No external CDN dependencies  
-- Works with **Elgato Stream Deck** and **Soomfon StreamDock**
+- Works with **Soomfon StreamDock**
 - Compatible with Mosquitto, Nginx/Traefik WS proxies, and any broker exposing MQTT over WebSockets
 
 ---
