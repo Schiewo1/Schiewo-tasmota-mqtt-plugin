@@ -1,0 +1,59 @@
+{
+  "SDKVersion": 2,
+
+  "Name": "MQTT Toggle",
+  "Description": "Schaltet MQTT-Geräte (z. B. Tasmota) und zeigt den Live-Status am Key an.",
+  "Author": "Schiewo",
+  "Version": "1.0.0",
+
+  "Category": "MQTT",
+  "CategoryIcon": "images/action",
+  "Icon": "images/plugin",
+  "URL": "",
+
+  "CodePath": "index.html",
+  "PropertyInspectorPath": "pi/mqtt.html",
+
+  "Actions": [
+    {
+      "UUID": "com.schiewo.mqtt.toggle",
+      "Name": "MQTT Toggle",
+      "Tooltip": "MQTT-Taste mit Live-Status (ON/OFF)",
+      "Icon": "images/action",
+      "States": [
+        {
+          "Image": "images/actionDefaultImage",
+          "TitleAlignment": "middle",
+          "FontSize": "16"
+        },
+        {
+          "Image": "images/actionImage"
+        }
+      ],
+      "SupportedInMultiActions": true,
+      "Controllers": ["Keypad"]  
+    },
+    {
+      "UUID": "com.schiewo.mqtt.display",
+      "Name": "MQTT Display",
+      "Tooltip": "Zeigt MQTT-Werte in der Statusleiste an",
+      "Icon": "images/action",
+      "States": [
+        {
+          "Image": "images/actionDefaultImage",
+          "TitleAlignment": "middle",
+          "FontSize": "16"
+        }
+      ],
+      "SupportedInMultiActions": false,
+      "Controllers": ["Keypad", "Information"],
+      "UserTitleEnabled": false     
+    }
+  ],
+
+  "OS": [
+    { "Platform": "mac", "MinimumVersion": "10.11" },
+    { "Platform": "windows", "MinimumVersion": "10" }
+  ],
+  "Software": { "MinimumVersion": "4.1" }
+}
